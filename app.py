@@ -90,17 +90,16 @@ df = load_data(DB_PATH)
 today = datetime.now()
 year, month = today.year, today.month
 
-# 참여 데이터 집계 (쉼표 구분)
+# 참여 데이터 집계
 active = df[df['date'].notna() & (df['date'] != "")]
 if not active.empty:
     count_dict = active.groupby('date').size().to_dict()
-    # 중복 이름 제거 후 쉼표로 연결
     names_dict = active.groupby('date')['name'].apply(lambda x: ", ".join(x.unique())).to_dict()
     max_count = max(count_dict.values())
 else:
     count_dict, names_dict, max_count = {}, {}, 0
 
-# --- 3. 메인 레이아웃 (탭 구성) ---
+# --- 3. 메인 레이아웃 ---
 tab_main, tab_admin = st.tabs(["🗓️ 일정 관리", "⚙️ 관리자"])
 
 with tab_main:
@@ -115,19 +114,18 @@ with tab_main:
             l_pw = st.text_input("비번(4자리)", type="password", key="l_pw", max_chars=4).strip()
             
             if st.button("로그인", use_container_width=True):
-                df = load_data(DB_PATH) # 최신 데이터 로드
+                df = load_data(DB_PATH) 
                 user_df = df[df['name'].astype(str).str.strip() == l_name] if not df.empty else pd.DataFrame()
                 
                 if not user_df.empty:
-                    # 비번 비교 로직 강화 (.0 소수점 제거 포함)
-                    stored_pw = str(user_df.iloc[0]['password']).strip().split('.')[0]
-                    input_pw = str(l_pw).strip()
+                    # [핵심 수정] 저장된 비번을 문자열로 가져와서 무조건 4자리(0000 형태)로 복원
+                    stored_pw = str(user_df.iloc[0]['password']).strip().split('.')[0].zfill(4)
+                    input_pw = str(l_pw).strip().zfill(4)
                     
                     if stored_pw == input_pw:
                         st.session_state.logged_in = True
                         st.session_state.user_name = l_name
-                        st.session_state.user_pw = l_pw
-                        # 기존 선택 날짜 로드
+                        st.session_state.user_pw = input_pw # 0000 형태 유지
                         selected = user_df[user_df['date'].notna()]['date'].unique()
                         st.session_state.selected_dates = set(selected)
                         st.rerun()
@@ -144,7 +142,8 @@ with tab_main:
                     if not df.empty and r_name in df['name'].astype(str).values:
                         st.warning("이미 존재하는 닉네임입니다.")
                     else:
-                        save_schedule(DB_PATH, r_name, r_pw, [], {})
+                        # 비번을 4자리 문자열로 고정해서 저장
+                        save_schedule(DB_PATH, r_name, r_pw.zfill(4), [], {})
                         st.success("등록 성공! 로그인 탭으로 이동하세요.")
                 else:
                     st.warning("닉네임과 4자리 비번을 정확히 입력하세요.")
@@ -193,7 +192,8 @@ with tab_main:
                         st.rerun()
         
         if st.button("💾 내 일정 최종 저장", use_container_width=True):
-            save_schedule(DB_PATH, st.session_state.user_name, st.session_state.user_pw, 
+            # 저장 시에도 4자리 포맷 유지
+            save_schedule(DB_PATH, st.session_state.user_name, st.session_state.user_pw.zfill(4), 
                           list(st.session_state.selected_dates), {})
             st.success("저장 완료!")
             st.rerun()
@@ -204,17 +204,20 @@ with tab_admin:
     admin_pw = st.text_input("관리자 비밀번호", type="password")
     if admin_pw == "1268":
         st.success("인증 성공")
-        all_users = df['name'].unique() if not df.empty else []
+        # 데이터 다시 불러오기 (비밀번호 컬럼 타입 유지)
+        df_admin = load_data(DB_PATH)
+        all_users = df_admin['name'].unique() if not df_admin.empty else []
         if len(all_users) > 0:
             target_user = st.selectbox("삭제할 사용자 선택", all_users)
             if st.button(f"❌ {target_user} 삭제 실행"):
-                new_df = df[df['name'] != target_user]
-                new_df.to_csv(DB_PATH, index=False)
+                new_df = df_admin[df_admin['name'] != target_user]
+                new_df.to_csv(DB_PATH, index=False, encoding='utf-8-sig')
                 st.error(f"{target_user} 데이터 삭제됨")
                 st.rerun()
             st.divider()
             st.write("📋 현재 전체 데이터 내역")
-            st.dataframe(df, use_container_width=True)
+            # 관리자 화면에서도 비번이 문자열로 보이도록 처리
+            st.dataframe(df_admin, use_container_width=True)
         else:
             st.info("등록된 사용자가 없습니다.")
     elif admin_pw != "":

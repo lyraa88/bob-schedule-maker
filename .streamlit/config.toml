@@ -1,0 +1,6 @@
+# .streamlit/secrets.toml
+[database]
+file_name = "schedule_data.csv"
+
+[auth]
+admin_password = "9999"
